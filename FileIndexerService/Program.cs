@@ -26,8 +26,9 @@ builder.Services.AddLogging(configure =>
     }
 });
 
-// Add the main service
+// Add the main services
 builder.Services.AddHostedService<FileIndexerService.Services.FileIndexerService>();
+builder.Services.AddHostedService<FileIndexerService.Services.DeleteIsActiveFilesService>();
 
 var host = builder.Build();
 

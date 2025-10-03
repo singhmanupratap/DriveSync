@@ -50,10 +50,9 @@ $configTemplate = @{
     }
     "FileIndexerConfiguration" = @{
         "InputFolderPath" = "REPLACE_WITH_YOUR_INPUT_PATH"
-        "TargetFolderPath" = "REPLACE_WITH_YOUR_TARGET_PATH"
-        "MaxBatchSizeMB" = 1024
-        "BatchDelayMinutes" = 2
-        "DatabasePath" = "fileindexer.db"
+        "ScanIntervalMinutes" = 5
+        "DatabasePath" = "REPLACE_WITH_YOUR_DATABASE_PATH"
+        "LocalDatabasePath" = "fileindexer_local.db"
     }
 }
 $configTemplate | ConvertTo-Json -Depth 5 | Set-Content "$packagePath\appsettings.template.json"
@@ -91,16 +90,14 @@ Set-Content "$packagePath\RUN-PORTABLE.bat" $runPortable
 $testPortable = @'
 @echo off
 set TEST_INPUT=C:\temp\TestInput
-set TEST_TARGET=C:\temp\TestTarget
 mkdir "%TEST_INPUT%" 2>nul
-mkdir "%TEST_TARGET%" 2>nul
 echo Creating test files...
 echo Test file 1 > "%TEST_INPUT%\test1.txt"
 echo Test file 2 > "%TEST_INPUT%\test2.txt"
 mkdir "%TEST_INPUT%\subfolder" 2>nul
 echo Nested test file > "%TEST_INPUT%\subfolder\nested.txt"
 
-echo {"Logging":{"LogLevel":{"Default":"Information"}},"FileIndexerConfiguration":{"InputFolderPath":"%TEST_INPUT%","TargetFolderPath":"%TEST_TARGET%","MaxBatchSizeMB":1024,"BatchDelayMinutes":1,"DatabasePath":"test_fileindexer.db"}} > "bin\appsettings.json"
+echo {"Logging":{"LogLevel":{"Default":"Information"}},"FileIndexerConfiguration":{"InputFolderPath":"%TEST_INPUT%","ScanIntervalMinutes":1,"DatabasePath":"test_fileindexer.db","LocalDatabasePath":"test_local.db"}} > "bin\appsettings.json"
 
 echo Starting FileIndexerService test (will run for 5 minutes)...
 cd bin
@@ -109,7 +106,7 @@ cd ..
 echo.
 echo Test completed. Check the following:
 echo - Input folder: %TEST_INPUT%
-echo - Target folder: %TEST_TARGET%
+echo - Database: bin\test_fileindexer.db
 echo - Database: bin\test_fileindexer.db
 pause
 '@
@@ -149,9 +146,7 @@ Edit `appsettings.json` (or `appsettings.template.json` before installation):
 {
   "FileIndexerConfiguration": {
     "InputFolderPath": "C:\\Source\\Files",
-    "TargetFolderPath": "C:\\Target\\Processing", 
-    "MaxBatchSizeMB": 1024,
-    "BatchDelayMinutes": 2,
+    "ScanIntervalMinutes": 5,
     "DatabasePath": "fileindexer.db"
   }
 }
@@ -169,8 +164,8 @@ Edit `appsettings.json` (or `appsettings.template.json` before installation):
 The service uses SQLite database to track:
 - File paths and names
 - Creation and modification dates
-- Processing status
-- File sizes
+- File sizes and hash (if enabled)
+- Complete indexing history
 
 ## Logs
 

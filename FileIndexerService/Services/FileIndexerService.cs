@@ -1,5 +1,5 @@
-using FileIndexerService.Data;
-using FileIndexerService.Models;
+using DriveSync.Shared.Data;
+using DriveSync.Shared.Models;
 using System.Runtime.CompilerServices;
 
 namespace FileIndexerService.Services;
@@ -12,10 +12,9 @@ public class FileIndexerService : BackgroundService
     
     // Configuration properties
     private string _inputFolderPath = string.Empty;
-    private string _targetFolderPath = string.Empty;
-    private long _maxBatchSizeBytes = 1024 * 1024 * 1024; // 1GB default
-    private int _batchDelayMinutes = 2;
+    private int _scanIntervalMinutes = 5;
     private string _databasePath = string.Empty;
+    private string _localDatabasePath = string.Empty;
 
     public FileIndexerService(ILogger<FileIndexerService> logger, IConfiguration configuration)
     {
@@ -28,23 +27,29 @@ public class FileIndexerService : BackgroundService
         try
         {
             LoadConfiguration();
+            
+            // Initial database copy and setup
+            await CopyDatabaseToLocalAsync();
             InitializeDatabase();
-            _logger.LogInformation("FileIndexerService started successfully");
+            
+            _logger.LogInformation("FileIndexerService started successfully - Monitoring folder: {InputFolder}", _inputFolderPath);
 
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    await ProcessCycleAsync(stoppingToken);
+                    await IndexFilesAsync(stoppingToken);
+                    await LogStatisticsAsync();
+                    await CopyDatabaseToRemoteAsync();
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error occurred during processing cycle");
+                    _logger.LogError(ex, "Error occurred during file indexing cycle");
                 }
 
-                // Wait for the configured delay before next cycle
-                _logger.LogInformation("Waiting {DelayMinutes} minutes before next cycle...", _batchDelayMinutes);
-                await Task.Delay(TimeSpan.FromMinutes(_batchDelayMinutes), stoppingToken);
+                // Wait for the configured interval before next scan
+                _logger.LogDebug("Waiting {ScanInterval} minutes before next scan...", _scanIntervalMinutes);
+                await Task.Delay(TimeSpan.FromMinutes(_scanIntervalMinutes), stoppingToken);
             }
         }
         catch (Exception ex)
@@ -55,6 +60,24 @@ public class FileIndexerService : BackgroundService
         finally
         {
             _database?.Dispose();
+            
+            // Final copy of database to remote location
+            try
+            {
+                await CopyDatabaseToRemoteAsync();
+                _logger.LogInformation("Final database copy completed");
+                
+                // Clean up local database file
+                if (File.Exists(_localDatabasePath))
+                {
+                    File.Delete(_localDatabasePath);
+                    _logger.LogInformation("Local database file cleaned up");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during final database copy and cleanup");
+            }
         }
     }
 
@@ -62,52 +85,22 @@ public class FileIndexerService : BackgroundService
     {
         var config = _configuration.GetSection("FileIndexerConfiguration");
         _inputFolderPath = config["InputFolderPath"] ?? throw new InvalidOperationException("InputFolderPath is required");
-        _targetFolderPath = config["TargetFolderPath"] ?? throw new InvalidOperationException("TargetFolderPath is required");
-        _maxBatchSizeBytes = config.GetValue<long>("MaxBatchSizeMB", 1024) * 1024 * 1024; // Convert MB to bytes
-        _batchDelayMinutes = config.GetValue<int>("BatchDelayMinutes", 2);
-        _databasePath = config["DatabasePath"] ?? Path.Combine(AppContext.BaseDirectory, "fileindexer.db");
+        _scanIntervalMinutes = config.GetValue<int>("ScanIntervalMinutes", 5);
+        _databasePath = config["DatabasePath"] ?? throw new InvalidOperationException("DatabasePath is required");
+        _localDatabasePath = config["LocalDatabasePath"] ?? Path.Combine(AppContext.BaseDirectory, "fileindexer_local.db");
 
-        _logger.LogInformation("Configuration loaded - Input: {Input}, Target: {Target}, MaxBatch: {MaxBatch}MB, Delay: {Delay}min", 
-            _inputFolderPath, _targetFolderPath, _maxBatchSizeBytes / (1024 * 1024), _batchDelayMinutes);
+        _logger.LogInformation("Configuration loaded - Input: {Input}, ScanInterval: {Interval}min, Database: {Database}, LocalDatabase: {LocalDatabase}", 
+            _inputFolderPath, _scanIntervalMinutes, _databasePath, _localDatabasePath);
     }
 
     private void InitializeDatabase()
     {
-        var connectionString = $"Data Source={_databasePath}";
+        var connectionString = $"Data Source={_localDatabasePath}";
         _database = new FileIndexerDatabase(connectionString);
-        _logger.LogInformation("Database initialized at {DatabasePath}", _databasePath);
+        _logger.LogInformation("Database initialized at local path: {LocalDatabasePath}", _localDatabasePath);
     }
 
-    private async Task ProcessCycleAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("Starting processing cycle...");
-
-        // Step 1: Index new files from input folder
-        await IndexNewFilesAsync(cancellationToken);
-
-        // Step 2: Check if target folder is empty
-        if (!IsTargetFolderEmpty())
-        {
-            _logger.LogInformation("Target folder is not empty, skipping batch processing");
-            return;
-        }
-
-        // Step 3: Get next batch of unprocessed files
-        var batch = await GetNextBatchAsync();
-        if (batch.Count == 0)
-        {
-            _logger.LogInformation("No unprocessed files found");
-            return;
-        }
-
-        // Step 4: Copy files to target folder
-        await CopyFilesToTargetAsync(batch, cancellationToken);
-
-        // Step 5: Log statistics
-        await LogStatisticsAsync();
-    }
-
-    private async Task IndexNewFilesAsync(CancellationToken cancellationToken)
+    private async Task IndexFilesAsync(CancellationToken cancellationToken)
     {
         if (!Directory.Exists(_inputFolderPath))
         {
@@ -115,8 +108,9 @@ public class FileIndexerService : BackgroundService
             return;
         }
 
-        _logger.LogInformation("Indexing files in {InputPath}...", _inputFolderPath);
+        _logger.LogInformation("Starting file indexing scan of {InputPath}...", _inputFolderPath);
         var newFilesCount = 0;
+        var updatedFilesCount = 0;
 
         await foreach (var filePath in GetAllFilesAsync(_inputFolderPath, cancellationToken))
         {
@@ -125,26 +119,28 @@ public class FileIndexerService : BackgroundService
                 var relativePath = GetRelativePath(filePath, _inputFolderPath);
                 var fileName = Path.GetFileName(filePath);
                 var relativeDir = Path.GetDirectoryName(relativePath) ?? string.Empty;
+                var fileInfo = new FileInfo(filePath);
 
                 // Check if file already exists in database
                 if (await _database!.FileExistsAsync(relativeDir, fileName))
                 {
                     // Check if file has been modified
                     var existingRecord = await _database.GetFileRecordAsync(relativeDir, fileName);
-                    var fileInfo = new FileInfo(filePath);
                     
-                    if (existingRecord?.ModificationDate != fileInfo.LastWriteTime)
+                    if (existingRecord != null && existingRecord.ModificationDate != fileInfo.LastWriteTime)
                     {
-                        // File has been modified, add new record (keeping old one for history)
-                        await AddFileRecordAsync(filePath, relativeDir, fileName);
-                        newFilesCount++;
+                        // File has been modified, update the record
+                        await UpdateFileRecordAsync(existingRecord.Id, fileInfo);
+                        updatedFilesCount++;
+                        _logger.LogDebug("Updated modified file: {RelativePath}", relativePath);
                     }
                 }
                 else
                 {
                     // New file, add to database
-                    await AddFileRecordAsync(filePath, relativeDir, fileName);
+                    await AddFileRecordAsync(filePath, relativeDir, fileName, fileInfo);
                     newFilesCount++;
+                    _logger.LogDebug("Indexed new file: {RelativePath}", relativePath);
                 }
             }
             catch (Exception ex)
@@ -153,7 +149,8 @@ public class FileIndexerService : BackgroundService
             }
         }
 
-        _logger.LogInformation("Indexed {NewFilesCount} new/modified files", newFilesCount);
+        _logger.LogInformation("File indexing completed - New: {NewFiles}, Updated: {UpdatedFiles}", 
+            newFilesCount, updatedFilesCount);
     }
 
     private async IAsyncEnumerable<string> GetAllFilesAsync(string folderPath, [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -208,9 +205,8 @@ public class FileIndexerService : BackgroundService
         }
     }
 
-    private async Task AddFileRecordAsync(string filePath, string relativeDir, string fileName)
+    private async Task AddFileRecordAsync(string filePath, string relativeDir, string fileName, FileInfo fileInfo)
     {
-        var fileInfo = new FileInfo(filePath);
         var fileRecord = new FileRecord
         {
             RelativePath = relativeDir,
@@ -219,10 +215,21 @@ public class FileIndexerService : BackgroundService
             CreationDate = fileInfo.CreationTime,
             ModificationDate = fileInfo.LastWriteTime,
             IndexedDate = DateTime.Now,
-            IsProcessed = false
+            FileHash = null // Could add file hash calculation if needed
         };
 
         await _database!.InsertFileRecordAsync(fileRecord);
+    }
+
+    private async Task UpdateFileRecordAsync(int recordId, FileInfo fileInfo)
+    {
+        // For simplicity, we'll add a new record instead of updating
+        // This maintains a history of file changes
+        var relativePath = GetRelativePath(fileInfo.FullName, _inputFolderPath);
+        var fileName = Path.GetFileName(fileInfo.FullName);
+        var relativeDir = Path.GetDirectoryName(relativePath) ?? string.Empty;
+
+        await AddFileRecordAsync(fileInfo.FullName, relativeDir, fileName, fileInfo);
     }
 
     private string GetRelativePath(string fullPath, string basePath)
@@ -232,84 +239,75 @@ public class FileIndexerService : BackgroundService
         return Uri.UnescapeDataString(baseUri.MakeRelativeUri(fullUri).ToString().Replace('/', Path.DirectorySeparatorChar));
     }
 
-    private bool IsTargetFolderEmpty()
+    private async Task CopyDatabaseToLocalAsync()
     {
-        if (!Directory.Exists(_targetFolderPath))
+        try
         {
-            Directory.CreateDirectory(_targetFolderPath);
-            return true;
-        }
-
-        var files = Directory.GetFiles(_targetFolderPath, "*", SearchOption.AllDirectories);
-        return files.Length == 0;
-    }
-
-    private async Task<List<FileRecord>> GetNextBatchAsync()
-    {
-        var batch = await _database!.GetUnprocessedFilesAsync(_maxBatchSizeBytes);
-        var totalSize = batch.Sum(f => f.FileSizeBytes);
-        
-        _logger.LogInformation("Next batch: {FileCount} files, {TotalSizeMB:F2} MB", 
-            batch.Count, totalSize / (1024.0 * 1024.0));
-        
-        return batch;
-    }
-
-    private async Task CopyFilesToTargetAsync(List<FileRecord> batch, CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("Copying {FileCount} files to target folder...", batch.Count);
-        var copiedCount = 0;
-        var errorCount = 0;
-
-        foreach (var fileRecord in batch)
-        {
-            if (cancellationToken.IsCancellationRequested) break;
-
-            try
+            // Copy database from remote path to local path before processing
+            if (File.Exists(_databasePath))
             {
-                var sourceFile = Path.Combine(_inputFolderPath, fileRecord.GetFullRelativePath());
-                var targetFile = Path.Combine(_targetFolderPath, fileRecord.GetFullRelativePath());
-                var targetDir = Path.GetDirectoryName(targetFile);
-
-                // Create target directory if it doesn't exist
-                if (!string.IsNullOrEmpty(targetDir) && !Directory.Exists(targetDir))
+                _logger.LogInformation("Copying database from {RemotePath} to {LocalPath}", _databasePath, _localDatabasePath);
+                
+                // Ensure the local directory exists
+                var localDir = Path.GetDirectoryName(_localDatabasePath);
+                if (!string.IsNullOrEmpty(localDir) && !Directory.Exists(localDir))
                 {
-                    Directory.CreateDirectory(targetDir);
+                    Directory.CreateDirectory(localDir);
                 }
-
+                
                 // Copy the file
-                if (File.Exists(sourceFile))
-                {
-                    File.Copy(sourceFile, targetFile, overwrite: true);
-                    await _database!.MarkFileAsProcessedAsync(fileRecord.Id);
-                    copiedCount++;
-                    
-                    if (copiedCount % 100 == 0) // Log progress every 100 files
-                    {
-                        _logger.LogInformation("Copied {CopiedCount}/{TotalCount} files...", copiedCount, batch.Count);
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning("Source file not found: {SourceFile}", sourceFile);
-                    errorCount++;
-                }
+                File.Copy(_databasePath, _localDatabasePath, overwrite: true);
+                _logger.LogInformation("Database copied successfully to local path");
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogError(ex, "Error copying file: {RelativePath}", fileRecord.GetFullRelativePath());
-                errorCount++;
+                _logger.LogInformation("Remote database does not exist, will create new local database");
             }
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error copying database to local path");
+            throw;
+        }
+    }
 
-        _logger.LogInformation("Batch copy completed: {CopiedCount} copied, {ErrorCount} errors", copiedCount, errorCount);
+    private async Task CopyDatabaseToRemoteAsync()
+    {
+        try
+        {
+            // Copy database from local path back to remote path after processing
+            if (File.Exists(_localDatabasePath))
+            {
+                _logger.LogInformation("Copying database from {LocalPath} to {RemotePath}", _localDatabasePath, _databasePath);
+                
+                // Ensure the remote directory exists
+                var remoteDir = Path.GetDirectoryName(_databasePath);
+                if (!string.IsNullOrEmpty(remoteDir) && !Directory.Exists(remoteDir))
+                {
+                    Directory.CreateDirectory(remoteDir);
+                }
+                
+                // Copy the file
+                File.Copy(_localDatabasePath, _databasePath, overwrite: true);
+                _logger.LogInformation("Database copied successfully to remote path");
+            }
+            else
+            {
+                _logger.LogWarning("Local database does not exist, cannot copy to remote path");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error copying database to remote path");
+            // Don't throw here as we don't want to crash the service for copy failures
+        }
     }
 
     private async Task LogStatisticsAsync()
     {
         var stats = await _database!.GetStatisticsAsync();
-        _logger.LogInformation("Database statistics - Total: {Total}, Processed: {Processed}, Unprocessed: {Unprocessed}, Total Size: {TotalSizeMB:F2} MB",
-            stats.total, stats.processed, stats.unprocessed, stats.totalSizeBytes / (1024.0 * 1024.0));
+        _logger.LogInformation("Database statistics - Total: {Total}, Active: {Active}, Inactive: {Inactive}, Total size: {TotalSizeMB:F2} MB",
+            stats.total, stats.active, stats.inactive, stats.totalSizeBytes / (1024.0 * 1024.0));
     }
 
     public override void Dispose()

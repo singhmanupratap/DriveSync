@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - File Indexer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Full width page styling */
+        body {
+            margin: 0;
+            padding: 0;
+        }
+        
+        .table-responsive {
+            border-radius: 0.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            width: 100%;
+            overflow-x: auto;
+        }
+        
+        .search-container {
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1.5rem;
+            width: 100%;
+        }
+        
+        .pagination-info {
+            color: #6c757d;
+            font-size: 0.875rem;
+        }
+        
+        .file-path {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: block;
+        }
+        
+        .file-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: block;
+        }
+        
+        /* Delete button styling */
+        .delete-btn {
+            border: none;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        .delete-btn:hover {
+            background-color: #dc3545;
+            color: white;
+            border-color: #dc3545;
+        }
+        
+        /* Bulk actions toolbar styling */
+        .bulk-actions-toolbar {
+            transition: all 0.3s ease;
+        }
+        
+        .file-checkbox {
+            cursor: pointer;
+        }
+        
+        #selectAll {
+            cursor: pointer;
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1050;
+        }
+        
+        /* Full width table styling */
+        .table {
+            width: 100%;
+            margin-bottom: 0;
+            table-layout: fixed;
+        }
+        
+        .table th, .table td {
+            padding: 0.75rem 0.5rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        /* Column width distribution for optimal space usage */
+        .table th:nth-child(1), .table td:nth-child(1) { width: 40px; }   /* Checkbox */
+        .table th:nth-child(2), .table td:nth-child(2) { width: 16%; }   /* File Name */
+        .table th:nth-child(3), .table td:nth-child(3) { width: 32%; }   /* Path - largest */
+        .table th:nth-child(4), .table td:nth-child(4) { width: 7%; }    /* Size */
+        .table th:nth-child(5), .table td:nth-child(5) { width: 8%; }    /* Created */
+        .table th:nth-child(6), .table td:nth-child(6) { width: 8%; }    /* Modified */
+        .table th:nth-child(7), .table td:nth-child(7) { width: 8%; }    /* Indexed */
+        .table th:nth-child(8), .table td:nth-child(8) { width: 6%; }    /* Status */
+        .table th:nth-child(9), .table td:nth-child(9) { width: 5%; }    /* Actions */
+        
+        /* Main container tweaks */
+        main.container-fluid {
+            max-width: 100%;
+            width: 100%;
+            padding-left: 15px;
+            padding-right: 15px;
+        }
+        
+        /* Header spacing */
+        .d-flex.justify-content-between {
+            margin-bottom: 1.5rem;
+            margin-top: 1rem;
+        }
+        
+        /* Responsive adjustments */
+        @@media (max-width: 1400px) {
+            .file-path {
+                max-width: 350px;
+            }
+        }
+        
+        @@media (max-width: 1200px) {
+            .file-path {
+                max-width: 300px;
+            }
+            .table th, .table td {
+                padding: 0.6rem 0.4rem;
+                font-size: 0.9rem;
+            }
+        }
+        
+        @@media (max-width: 992px) {
+            .file-path {
+                max-width: 200px;
+            }
+            .table th, .table td {
+                padding: 0.5rem 0.25rem;
+                font-size: 0.875rem;
+            }
+        }
+        
+        @@media (max-width: 768px) {
+            .search-container .row .col-md-4,
+            .search-container .row .col-md-2 {
+                margin-bottom: 1rem;
+            }
+            main.container-fluid {
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#"><i class="fas fa-search me-2"></i>File Indexer</a>
+        </div>
+    </nav>
+
+    <main class="container-fluid px-3">
+        @Html.AntiForgeryToken()
+        @RenderBody()
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    @RenderSection("Scripts", required: false)
+</body>
+</html>
