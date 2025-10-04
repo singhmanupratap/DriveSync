@@ -205,33 +205,41 @@
                             var isMediaFile = fileType == "image" || fileType == "video";
                             var isClickable = isMediaFile && file.IsActive;
                         }
-                        <span class="file-name" title="@file.FileName">
-                            @GetFileIconHelper(fileType)
-                            @if (isClickable)
-                            {
-                                <a href="#" class="ms-2 media-file-link text-decoration-none" 
-                                   data-file-id="@file.Id" 
-                                   data-file-name="@file.FileName"
-                                   data-file-type="@fileType"
-                                   title="Click to preview @file.FileName">
-                                    @file.FileName
-                                </a>
-                            }
-                            else
-                            {
-                                <span class="ms-2">@file.FileName</span>
-                            }
-                        </span>
+                        <div class="d-flex align-items-center">
+                            <span class="file-name flex-grow-1" title="@file.FileName">
+                                @GetFileIconHelper(fileType)
+                                @if (isClickable)
+                                {
+                                    <a href="#" class="ms-2 media-file-link text-decoration-none" 
+                                       data-file-id="@file.Id" 
+                                       data-file-name="@file.FileName"
+                                       data-file-type="@fileType"
+                                       title="Click to preview @file.FileName">
+                                        @file.FileName
+                                    </a>
+                                }
+                                else
+                                {
+                                    <span class="ms-2">@file.FileName</span>
+                                }
+                            </span>
+                            <button class="btn btn-sm btn-outline-secondary ms-2 copy-filename-btn" 
+                                    data-filename="@file.FileName" 
+                                    title="Copy file name to clipboard"
+                                    type="button">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
                     </td>
                     <td>
                         @{
                             var combinedPath = System.IO.Path.Combine(inputFolderPath, file.RelativePath, file.FileName);
                         }
                         <div class="d-flex align-items-center">
-                            <span class="file-path flex-grow-1" title="@combinedPath">@combinedPath</span>
+                            <span class="file-path flex-grow-1" title="Full path: @combinedPath">@file.RelativePath</span>
                             <button class="btn btn-sm btn-outline-secondary ms-2 copy-path-btn" 
                                     data-path="@combinedPath" 
-                                    title="Copy path to clipboard"
+                                    title="Copy full path to clipboard"
                                     type="button">
                                 <i class="fas fa-copy"></i>
                             </button>
@@ -292,16 +300,45 @@
         font-size: 0.8em;
     }
     
+    /* Copy filename button styling */
+    .copy-filename-btn {
+        opacity: 0.7;
+        transition: opacity 0.2s ease-in-out;
+        min-width: 32px;
+        height: 32px;
+        padding: 4px 8px;
+        border-radius: 4px;
+    }
+    
+    .copy-filename-btn:hover {
+        opacity: 1;
+    }
+    
+    .copy-filename-btn i {
+        font-size: 0.8em;
+    }
+    
+    /* Animation for copy success */
+    .copy-filename-btn.btn-success {
+        transition: all 0.3s ease-in-out;
+    }
+    
     /* Animation for copy success */
     .copy-path-btn.btn-success {
         transition: all 0.3s ease-in-out;
     }
     
-    /* Ensure the path column has enough space */
+    /* Ensure the columns have proper space */
+    .table th:nth-child(2), 
+    .table td:nth-child(2) {
+        min-width: 250px;
+        max-width: 400px;
+    }
+    
     .table th:nth-child(3), 
     .table td:nth-child(3) {
-        min-width: 300px;
-        max-width: 500px;
+        min-width: 200px;
+        max-width: 300px;
     }
 </style>
 
@@ -414,10 +451,10 @@
                     </td>
                     <td>
                         <div class="d-flex align-items-center">
-                            <span class="file-path flex-grow-1" title="${escapeHtml(file.combinedPath)}">${escapeHtml(file.combinedPath)}</span>
+                            <span class="file-path flex-grow-1" title="Full path: ${escapeHtml(file.combinedPath)}">${escapeHtml(file.relativePath)}</span>
                             <button class="btn btn-sm btn-outline-secondary ms-2 copy-path-btn" 
                                     data-path="${escapeHtml(file.combinedPath)}" 
-                                    title="Copy path to clipboard"
+                                    title="Copy full path to clipboard"
                                     type="button">
                                 <i class="fas fa-copy"></i>
                             </button>
@@ -660,6 +697,8 @@
         // Initial attachment of event listeners
         document.addEventListener('DOMContentLoaded', function() {
             attachDeleteEventListeners();
+            attachCopyPathEventListeners();
+            attachCopyFilenameEventListeners();
             attachBulkActionEventListeners();
         });
 
@@ -873,21 +912,37 @@
             const isClickable = file.isMediaFile && file.syncStatus === 'Synced';
             
             if (isClickable) {
-                return `<span class="file-name">
-                    ${icon}
-                    <a href="#" class="ms-2 media-file-link text-decoration-none" 
-                       data-file-id="${file.id}" 
-                       data-file-name="${escapeHtml(file.fileName)}"
-                       data-file-type="${file.fileType}"
-                       title="Click to preview ${escapeHtml(file.fileName)}">
-                        ${escapeHtml(file.fileName)}
-                    </a>
-                </span>`;
+                return `<div class="d-flex align-items-center">
+                    <span class="file-name flex-grow-1">
+                        ${icon}
+                        <a href="#" class="ms-2 media-file-link text-decoration-none" 
+                           data-file-id="${file.id}" 
+                           data-file-name="${escapeHtml(file.fileName)}"
+                           data-file-type="${file.fileType}"
+                           title="Click to preview ${escapeHtml(file.fileName)}">
+                            ${escapeHtml(file.fileName)}
+                        </a>
+                    </span>
+                    <button class="btn btn-sm btn-outline-secondary ms-2 copy-filename-btn" 
+                            data-filename="${escapeHtml(file.fileName)}" 
+                            title="Copy file name to clipboard"
+                            type="button">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>`;
             } else {
-                return `<span class="file-name" title="${escapeHtml(file.fileName)}">
-                    ${icon}
-                    <span class="ms-2">${escapeHtml(file.fileName)}</span>
-                </span>`;
+                return `<div class="d-flex align-items-center">
+                    <span class="file-name flex-grow-1" title="${escapeHtml(file.fileName)}">
+                        ${icon}
+                        <span class="ms-2">${escapeHtml(file.fileName)}</span>
+                    </span>
+                    <button class="btn btn-sm btn-outline-secondary ms-2 copy-filename-btn" 
+                            data-filename="${escapeHtml(file.fileName)}" 
+                            title="Copy file name to clipboard"
+                            type="button">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>`;
             }
         }
 
@@ -936,6 +991,18 @@
                     e.stopPropagation();
                     const path = this.getAttribute('data-path');
                     copyToClipboard(path, this);
+                });
+            });
+        }
+
+        // Add copy filename functionality
+        function attachCopyFilenameEventListeners() {
+            document.querySelectorAll('.copy-filename-btn').forEach(button => {
+                button.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const filename = this.getAttribute('data-filename');
+                    copyToClipboard(filename, this);
                 });
             });
         }
@@ -1098,6 +1165,7 @@
             attachDeleteEventListeners();
             attachSyncEventListeners();
             attachCopyPathEventListeners();
+            attachCopyFilenameEventListeners();
             attachMediaEventListeners();
             // Note: Bulk action listeners are attached to document, so they don't need reattaching
             updateSelectAllState();
