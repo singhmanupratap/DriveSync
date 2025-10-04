@@ -40,6 +40,20 @@ public class FileIndexerDatabase : IDisposable
                 FOREIGN KEY (FileId) REFERENCES FileRecords (Id)
             );
 
+            CREATE TABLE IF NOT EXISTS ScanMetadata (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                HostName TEXT NOT NULL UNIQUE,
+                LastScanStartTime TEXT NOT NULL,
+                LastScanEndTime TEXT NOT NULL,
+                ScanType TEXT NOT NULL, -- 'Initial' or 'Incremental'
+                TimeZone TEXT NOT NULL,
+                FilesProcessed INTEGER NOT NULL DEFAULT 0,
+                FilesAdded INTEGER NOT NULL DEFAULT 0,
+                FilesUpdated INTEGER NOT NULL DEFAULT 0,
+                CreatedAt TEXT NOT NULL,
+                UpdatedAt TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_relativepath ON FileRecords(RelativePath);
             CREATE INDEX IF NOT EXISTS idx_filename ON FileRecords(FileName);
             CREATE INDEX IF NOT EXISTS idx_isactive ON FileRecords(IsActive);
@@ -478,6 +492,88 @@ public class FileIndexerDatabase : IDisposable
 
         var rowsAffected = await command.ExecuteNonQueryAsync();
         return rowsAffected > 0;
+    }
+
+    // Scan Metadata Management
+    public async Task<DateTime?> GetLastScanEndTimeAsync(string hostName)
+    {
+        var query = "SELECT LastScanEndTime FROM ScanMetadata WHERE HostName = @hostName ORDER BY UpdatedAt DESC LIMIT 1";
+        
+        using var command = new SqliteCommand(query, _connection);
+        command.Parameters.AddWithValue("@hostName", hostName);
+        
+        var result = await command.ExecuteScalarAsync();
+        if (result != null && DateTime.TryParse(result.ToString(), out var lastScanTime))
+        {
+            return lastScanTime;
+        }
+        
+        return null;
+    }
+
+    public async Task<string> GetLastScanTypeAsync(string hostName)
+    {
+        var query = "SELECT ScanType FROM ScanMetadata WHERE HostName = @hostName ORDER BY UpdatedAt DESC LIMIT 1";
+        
+        using var command = new SqliteCommand(query, _connection);
+        command.Parameters.AddWithValue("@hostName", hostName);
+        
+        var result = await command.ExecuteScalarAsync();
+        return result?.ToString() ?? "Initial";
+    }
+
+    public async Task<bool> SaveScanMetadataAsync(string hostName, DateTime scanStartTime, DateTime scanEndTime, 
+        string scanType, string timeZone, int filesProcessed, int filesAdded, int filesUpdated)
+    {
+        var now = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff");
+        
+        var query = @"
+            INSERT OR REPLACE INTO ScanMetadata 
+            (HostName, LastScanStartTime, LastScanEndTime, ScanType, TimeZone, FilesProcessed, FilesAdded, FilesUpdated, CreatedAt, UpdatedAt)
+            VALUES (@hostName, @scanStart, @scanEnd, @scanType, @timeZone, @filesProcessed, @filesAdded, @filesUpdated, 
+                    COALESCE((SELECT CreatedAt FROM ScanMetadata WHERE HostName = @hostName), @now), @now)";
+        
+        using var command = new SqliteCommand(query, _connection);
+        command.Parameters.AddWithValue("@hostName", hostName);
+        command.Parameters.AddWithValue("@scanStart", scanStartTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+        command.Parameters.AddWithValue("@scanEnd", scanEndTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+        command.Parameters.AddWithValue("@scanType", scanType);
+        command.Parameters.AddWithValue("@timeZone", timeZone);
+        command.Parameters.AddWithValue("@filesProcessed", filesProcessed);
+        command.Parameters.AddWithValue("@filesAdded", filesAdded);
+        command.Parameters.AddWithValue("@filesUpdated", filesUpdated);
+        command.Parameters.AddWithValue("@now", now);
+        
+        var rowsAffected = await command.ExecuteNonQueryAsync();
+        return rowsAffected > 0;
+    }
+
+    public async Task<(DateTime? lastScan, string scanType, int totalFiles)> GetScanSummaryAsync(string hostName)
+    {
+        var query = @"
+            SELECT LastScanEndTime, ScanType, FilesProcessed 
+            FROM ScanMetadata 
+            WHERE HostName = @hostName 
+            ORDER BY UpdatedAt DESC 
+            LIMIT 1";
+        
+        using var command = new SqliteCommand(query, _connection);
+        command.Parameters.AddWithValue("@hostName", hostName);
+        
+        using var reader = await command.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            var lastScanStr = reader.GetString(0);
+            var scanType = reader.GetString(1);
+            var totalFiles = reader.GetInt32(2);
+            
+            if (DateTime.TryParse(lastScanStr, out var lastScan))
+            {
+                return (lastScan, scanType, totalFiles);
+            }
+        }
+        
+        return (null, "Initial", 0);
     }
 
     public void Dispose()

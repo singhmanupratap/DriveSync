@@ -1,0 +1,36 @@
+{
+  "HostOrchestration": {
+    "Hosts": {
+      "HOME-DESKTOP": {
+        "Timezone": "Asia/Kolkata",
+        "ExecutionMinutes": [0, 20, 40],
+        "Location": "India"
+      },
+      "LENOVO-LAPTOP": {
+        "Timezone": "Europe/Berlin",
+        "ExecutionMinutes": [8, 28, 48],
+        "Location": "Germany"
+      },
+      "MI_HOME": {
+        "Timezone": "Europe/Berlin",
+        "ExecutionMinutes": [16, 36, 56],
+        "Location": "Germany"
+      }
+    },
+    "BufferTimeMinutes": 3,
+    "Services": {
+      "FileIndexer": {
+        "IntervalMinutes": 20
+      },
+      "DeleteInactiveFiles": {
+        "IntervalMinutes": 30
+      },
+      "SharedToLocalSync": {
+        "IntervalMinutes": 30
+      },
+      "DatabaseSync": {
+        "IntervalMinutes": 15
+      }
+    }
+  }
+}

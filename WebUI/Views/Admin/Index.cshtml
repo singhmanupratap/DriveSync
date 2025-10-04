@@ -1,0 +1,609 @@
+@model WebUI.Models.AdminConfigurationViewModel
+@{
+    ViewData["Title"] = "Admin Configuration";
+}
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h1><i class="fas fa-cogs me-2"></i>Admin Configuration</h1>
+                <div>
+                    <button type="button" class="btn btn-info me-2" onclick="refreshHostStatus()">
+                        <i class="fas fa-sync me-1"></i>Refresh Status
+                    </button>
+                    <button type="button" class="btn btn-warning me-2" onclick="testConfiguration()">
+                        <i class="fas fa-check-circle me-1"></i>Test Config
+                    </button>
+                    <button type="button" class="btn btn-success" onclick="saveConfiguration()">
+                        <i class="fas fa-save me-1"></i>Save Configuration
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>@Model.ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    @if (Model.ConfigurationSaved)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="fas fa-check-circle me-2"></i>Configuration saved successfully!
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <!-- Current Host Info -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-server me-2"></i>Current Host Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <strong>Host Name:</strong> <span class="badge bg-primary">@Model.CurrentHost</span>
+                        </div>
+                        <div class="col-md-4">
+                            <strong>Local Time:</strong> <span id="currentTime">@DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                        </div>
+                        <div class="col-md-4">
+                            <strong>UTC Time:</strong> <span id="utcTime">@DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Host Status Dashboard -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-tachometer-alt me-2"></i>Host Status Dashboard</h5>
+                </div>
+                <div class="card-body">
+                    <div id="hostStatusContainer">
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading host status...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabs for Configuration Sections -->
+    <ul class="nav nav-tabs" id="configTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="orchestration-tab" data-bs-toggle="tab" data-bs-target="#orchestration" type="button" role="tab">
+                <i class="fas fa-network-wired me-2"></i>Host Orchestration
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fileindexer-tab" data-bs-toggle="tab" data-bs-target="#fileindexer" type="button" role="tab">
+                <i class="fas fa-search me-2"></i>File Indexer
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="services-tab" data-bs-toggle="tab" data-bs-target="#services" type="button" role="tab">
+                <i class="fas fa-cog me-2"></i>Background Services
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content mt-3" id="configTabContent">
+        
+        <!-- Host Orchestration Tab -->
+        <div class="tab-pane fade show active" id="orchestration" role="tabpanel">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Host Orchestration Configuration</h5>
+                    <small class="text-muted">Configure timing and coordination between multiple hosts</small>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="bufferTime" class="form-label">Buffer Time (minutes)</label>
+                            <input type="number" class="form-control" id="bufferTime" value="@Model.HostOrchestration.BufferTimeMinutes" min="1" max="10">
+                            <div class="form-text">Minimum time gap between host operations to prevent conflicts</div>
+                        </div>
+                    </div>
+
+                    <h6>Host Configurations</h6>
+                    <div id="hostsContainer">
+                        @foreach (var host in Model.HostOrchestration.Hosts)
+                        {
+                            <div class="card mb-3 host-config" data-host="@host.Key">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">@host.Key</h6>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeHost('@host.Key')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label class="form-label">Location</label>
+                                            <input type="text" class="form-control host-location" value="@host.Value.Location" placeholder="e.g., India, Germany">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Timezone</label>
+                                            <select class="form-select host-timezone">
+                                                @foreach (var tz in Model.AvailableTimezones)
+                                                {
+                                                    <option value="@tz" @(tz == host.Value.Timezone ? "selected" : "")>@tz</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Execution Minutes</label>
+                                            <input type="text" class="form-control host-execution" value="@string.Join(",", host.Value.ExecutionMinutes)" placeholder="0,20,40">
+                                            <div class="form-text">Comma-separated minutes (0-59)</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <button type="button" class="btn btn-outline-primary" onclick="addNewHost()">
+                        <i class="fas fa-plus me-1"></i>Add New Host
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Indexer Tab -->
+        <div class="tab-pane fade" id="fileindexer" role="tabpanel">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">File Indexer Configuration</h5>
+                    <small class="text-muted">Configure file indexing behavior per host</small>
+                </div>
+                <div class="card-body">
+                    <div id="fileIndexerHostsContainer">
+                        @foreach (var host in Model.FileIndexer.Hosts)
+                        {
+                            <div class="card mb-3 fileindexer-config" data-host="@host.Key">
+                                <div class="card-header">
+                                    <h6 class="mb-0">@host.Key</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input fileindexer-enabled" type="checkbox" @(host.Value.Enabled ? "checked" : "")>
+                                                <label class="form-check-label">Enabled</label>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label">Scan Interval (minutes)</label>
+                                            <input type="number" class="form-control fileindexer-interval" value="@host.Value.ScanIntervalMinutes" min="5" max="120">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label">Max Files Per Batch</label>
+                                            <input type="number" class="form-control fileindexer-batch" value="@host.Value.MaxFilesPerBatch" min="100" max="10000" step="100">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label">Timezone</label>
+                                            <select class="form-select fileindexer-timezone">
+                                                @foreach (var tz in Model.AvailableTimezones)
+                                                {
+                                                    <option value="@tz" @(tz == host.Value.Timezone ? "selected" : "")>@tz</option>
+                                                }
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Background Services Tab -->
+        <div class="tab-pane fade" id="services" role="tabpanel">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Background Services Configuration</h5>
+                    <small class="text-muted">Configure intervals for background services</small>
+                </div>
+                <div class="card-body">
+                    <div id="servicesContainer">
+                        @foreach (var service in Model.HostOrchestration.Services)
+                        {
+                            <div class="row mb-3 service-config" data-service="@service.Key">
+                                <div class="col-md-6">
+                                    <label class="form-label">@service.Key</label>
+                                    <div class="form-text">
+                                        @switch (service.Key)
+                                        {
+                                            case "FileIndexer":
+                                                @:Scans for file changes and updates the index
+                                                break;
+                                            case "DeleteInactiveFiles":
+                                                @:Removes files that are no longer tracked
+                                                break;
+                                            case "SharedToLocalSync":
+                                                @:Synchronizes shared files to local storage
+                                                break;
+                                            case "DatabaseSync":
+                                                @:Synchronizes database changes across hosts
+                                                break;
+                                        }
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="input-group">
+                                        <input type="number" class="form-control service-interval" value="@service.Value.IntervalMinutes" min="1" max="240">
+                                        <span class="input-group-text">minutes</span>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modals -->
+<div class="modal fade" id="testResultsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Configuration Test Results</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="testResultsBody">
+                <!-- Test results will be populated here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // Global variables
+        let hostStatusInterval;
+        let timeUpdateInterval;
+        
+        // Make timezone data available to JavaScript
+        const availableTimezones = @Html.Raw(Json.Serialize(Model.AvailableTimezones));
+
+        // Initialize page
+        $(document).ready(function() {
+            refreshHostStatus();
+            startTimeUpdates();
+            
+            // Refresh host status every 30 seconds
+            hostStatusInterval = setInterval(refreshHostStatus, 30000);
+        });
+
+        // Update time displays
+        function startTimeUpdates() {
+            timeUpdateInterval = setInterval(function() {
+                $('#currentTime').text(new Date().toLocaleString());
+                $('#utcTime').text(new Date().toISOString().replace('T', ' ').substring(0, 19));
+            }, 1000);
+        }
+
+        // Refresh host status
+        function refreshHostStatus() {
+            $.get('/Admin/GetHostStatus')
+                .done(function(data) {
+                    console.log('Host status data received:', data);
+                    renderHostStatus(data);
+                })
+                .fail(function(xhr, status, error) {
+                    console.error('Failed to load host status:', error);
+                    $('#hostStatusContainer').html('<div class="alert alert-danger">Failed to load host status: ' + error + '</div>');
+                });
+        }
+
+        // Render host status
+        function renderHostStatus(hosts) {
+            console.log('Rendering hosts:', hosts);
+            let html = '<div class="row">';
+            
+            hosts.forEach(function(host, index) {
+                console.log(`Host ${index}:`, host);
+                const statusClass = host.canStart ? 'success' : 'warning';
+                const statusIcon = host.canStart ? 'check-circle' : 'clock';
+                const isCurrentBadge = host.isCurrentHost ? '<span class="badge bg-info ms-2">Current</span>' : '';
+                const hostName = host.hostName || 'Unknown';
+                
+                html += `
+                    <div class="col-md-4 mb-3">
+                        <div class="card border-${statusClass}">
+                            <div class="card-header bg-${statusClass} text-white">
+                                <h6 class="mb-0">
+                                    <i class="fas fa-${statusIcon} me-2"></i>${hostName}
+                                    ${isCurrentBadge}
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <p class="mb-1"><strong>Location:</strong> ${host.location || 'N/A'}</p>
+                                <p class="mb-1"><strong>Timezone:</strong> ${host.timezone || 'N/A'}</p>
+                                <p class="mb-1"><strong>Next Execution:</strong> ${host.nextExecution || 'N/A'}</p>
+                                <p class="mb-1"><strong>Schedule:</strong> ${(host.executionMinutes && Array.isArray(host.executionMinutes)) ? host.executionMinutes.join(', ') + ' min' : 'N/A'}</p>
+                                <p class="mb-0"><strong>Can Start:</strong> 
+                                    <span class="badge bg-${statusClass}">${host.canStart ? 'Yes' : 'No'}</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            $('#hostStatusContainer').html(html);
+        }
+
+        // Test configuration
+        function testConfiguration() {
+            $.post('/Admin/TestHostConfiguration')
+                .done(function(response) {
+                    if (response.success) {
+                        renderTestResults(response.results);
+                        $('#testResultsModal').modal('show');
+                    } else {
+                        showAlert('danger', 'Test failed: ' + response.message);
+                    }
+                })
+                .fail(function() {
+                    showAlert('danger', 'Failed to test configuration');
+                });
+        }
+
+        // Render test results
+        function renderTestResults(results) {
+            let html = '';
+            
+            results.forEach(function(result) {
+                const statusClass = result.IsValid ? 'success' : 'danger';
+                const statusIcon = result.IsValid ? 'check-circle' : 'exclamation-triangle';
+                
+                html += `
+                    <div class="card mb-3 border-${statusClass}">
+                        <div class="card-header bg-${statusClass} text-white">
+                            <h6 class="mb-0">
+                                <i class="fas fa-${statusIcon} me-2"></i>${result.HostName}
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                `;
+                
+                if (result.IsValid) {
+                    html += '<p class="text-success"><i class="fas fa-check me-2"></i>Configuration is valid</p>';
+                    if (result.NextExecutions && result.NextExecutions.length > 0) {
+                        html += '<p><strong>Next 5 Executions:</strong></p><ul>';
+                        result.NextExecutions.forEach(function(time) {
+                            html += `<li>${time}</li>`;
+                        });
+                        html += '</ul>';
+                    }
+                } else {
+                    html += '<p class="text-danger"><i class="fas fa-exclamation-triangle me-2"></i>Configuration has issues:</p><ul>';
+                    result.Issues.forEach(function(issue) {
+                        html += `<li class="text-danger">${issue}</li>`;
+                    });
+                    html += '</ul>';
+                }
+                
+                html += '</div></div>';
+            });
+            
+            $('#testResultsBody').html(html);
+        }
+
+        // Save configuration
+        function saveConfiguration() {
+            const config = gatherConfiguration();
+            
+            $.ajax({
+                url: '/Admin/SaveConfiguration',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(config),
+                success: function(response) {
+                    if (response.success) {
+                        showAlert('success', response.message);
+                        refreshHostStatus();
+                    } else {
+                        showAlert('danger', response.message);
+                    }
+                },
+                error: function() {
+                    showAlert('danger', 'Failed to save configuration');
+                }
+            });
+        }
+
+        // Gather configuration from form
+        function gatherConfiguration() {
+            const config = {
+                HostOrchestration: {
+                    BufferTimeMinutes: parseInt($('#bufferTime').val()),
+                    Hosts: {},
+                    Services: {}
+                },
+                FileIndexer: {
+                    Hosts: {}
+                }
+            };
+
+            // Gather host orchestration config
+            $('.host-config').each(function() {
+                const hostName = $(this).data('host');
+                const executionMinutes = $(this).find('.host-execution').val()
+                    .split(',')
+                    .map(m => parseInt(m.trim()))
+                    .filter(m => !isNaN(m));
+
+                config.HostOrchestration.Hosts[hostName] = {
+                    Location: $(this).find('.host-location').val(),
+                    Timezone: $(this).find('.host-timezone').val(),
+                    ExecutionMinutes: executionMinutes
+                };
+            });
+
+            // Gather service intervals
+            $('.service-config').each(function() {
+                const serviceName = $(this).data('service');
+                config.HostOrchestration.Services[serviceName] = {
+                    IntervalMinutes: parseInt($(this).find('.service-interval').val())
+                };
+            });
+
+            // Gather FileIndexer config
+            $('.fileindexer-config').each(function() {
+                const hostName = $(this).data('host');
+                config.FileIndexer.Hosts[hostName] = {
+                    Enabled: $(this).find('.fileindexer-enabled').is(':checked'),
+                    ScanIntervalMinutes: parseInt($(this).find('.fileindexer-interval').val()),
+                    MaxFilesPerBatch: parseInt($(this).find('.fileindexer-batch').val()),
+                    Timezone: $(this).find('.fileindexer-timezone').val()
+                };
+            });
+
+            return config;
+        }
+
+        // Add new host
+        function addNewHost() {
+            const hostName = prompt('Enter new host name:');
+            if (hostName && hostName.trim()) {
+                addHostConfigCard(hostName.trim());
+                addFileIndexerHostCard(hostName.trim());
+            }
+        }
+
+        // Add host config card
+        function addHostConfigCard(hostName) {
+            let timezoneOptions = '';
+            availableTimezones.forEach(function(tz) {
+                timezoneOptions += `<option value="${tz}">${tz}</option>`;
+            });
+            
+            const html = `
+                <div class="card mb-3 host-config" data-host="${hostName}">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">${hostName}</h6>
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeHost('${hostName}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label class="form-label">Location</label>
+                                <input type="text" class="form-control host-location" placeholder="e.g., India, Germany">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Timezone</label>
+                                <select class="form-select host-timezone">
+                                    ${timezoneOptions}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Execution Minutes</label>
+                                <input type="text" class="form-control host-execution" placeholder="0,20,40">
+                                <div class="form-text">Comma-separated minutes (0-59)</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            $('#hostsContainer').append(html);
+        }
+
+        // Add FileIndexer host card
+        function addFileIndexerHostCard(hostName) {
+            let timezoneOptions = '';
+            availableTimezones.forEach(function(tz) {
+                timezoneOptions += `<option value="${tz}">${tz}</option>`;
+            });
+            
+            const html = `
+                <div class="card mb-3 fileindexer-config" data-host="${hostName}">
+                    <div class="card-header">
+                        <h6 class="mb-0">${hostName}</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input fileindexer-enabled" type="checkbox" checked>
+                                    <label class="form-check-label">Enabled</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Scan Interval (minutes)</label>
+                                <input type="number" class="form-control fileindexer-interval" value="20" min="5" max="120">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Max Files Per Batch</label>
+                                <input type="number" class="form-control fileindexer-batch" value="1000" min="100" max="10000" step="100">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Timezone</label>
+                                <select class="form-select fileindexer-timezone">
+                                    ${timezoneOptions}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            $('#fileIndexerHostsContainer').append(html);
+        }
+
+        // Remove host
+        function removeHost(hostName) {
+            if (confirm(`Are you sure you want to remove host "${hostName}"?`)) {
+                $(`.host-config[data-host="${hostName}"]`).remove();
+                $(`.fileindexer-config[data-host="${hostName}"]`).remove();
+            }
+        }
+
+        // Show alert
+        function showAlert(type, message) {
+            const alertHtml = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'} me-2"></i>${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            $('.container-fluid').prepend(alertHtml);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(function() {
+                $('.alert').fadeOut();
+            }, 5000);
+        }
+
+        // Cleanup intervals when page unloads
+        $(window).on('beforeunload', function() {
+            if (hostStatusInterval) clearInterval(hostStatusInterval);
+            if (timeUpdateInterval) clearInterval(timeUpdateInterval);
+        });
+    </script>
+}

@@ -4,30 +4,29 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Shared.Services;
 
-namespace WebUI.BackgroundServices;
+namespace DriveSync.WebUI.BackgroundServices;
 
-public class DatabaseSyncBackgroundService : BackgroundService
+public class DatabaseSyncBackgroundService : BaseBackgroundService
 {
-    private readonly ILogger<DatabaseSyncBackgroundService> _logger;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<DatabaseSyncBackgroundService> _databaseSyncLogger;
     private readonly TimeSpan _syncInterval;
 
     public DatabaseSyncBackgroundService(
         ILogger<DatabaseSyncBackgroundService> logger,
         IServiceProvider serviceProvider,
         IConfiguration configuration)
+        : base(logger, serviceProvider, "DatabaseSync")
     {
-        _logger = logger;
-        _serviceProvider = serviceProvider;
+        _databaseSyncLogger = logger;
         
         // Get sync interval from configuration, default to 5 minutes
         var intervalMinutes = configuration.GetValue<int>("DatabaseSync:IntervalMinutes", 5);
         _syncInterval = TimeSpan.FromMinutes(intervalMinutes);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteServiceAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Database sync background service started with interval: {Interval}", _syncInterval);
+        _databaseSyncLogger.LogInformation("Database sync background service started with interval: {Interval}", _syncInterval);
         
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -37,18 +36,14 @@ public class DatabaseSyncBackgroundService : BackgroundService
                 
                 if (stoppingToken.IsCancellationRequested)
                     break;
-                    
-                using var scope = _serviceProvider.CreateScope();
-                var databaseCopyService = scope.ServiceProvider.GetService<IDatabaseCopyService>();
                 
-                if (databaseCopyService != null)
+                // Use the base class method for automatic database sync
+                await ExecuteWithDatabaseSyncAsync(async () =>
                 {
-                    await databaseCopyService.SyncAllChangesToRemoteAsync();
-                }
-                else
-                {
-                    _logger.LogWarning("DatabaseCopyService not found in service provider");
-                }
+                    // The actual sync work is done by the base class
+                    // This is just a periodic trigger
+                    _databaseSyncLogger.LogInformation("Periodic database sync triggered");
+                }, "periodic database sync");
             }
             catch (OperationCanceledException)
             {
@@ -56,46 +51,8 @@ public class DatabaseSyncBackgroundService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during periodic database sync");
+                _databaseSyncLogger.LogError(ex, "Error during periodic database sync");
             }
         }
-        
-        _logger.LogInformation("Database sync background service stopped");
-    }
-
-    public override async Task StopAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("Database sync background service stopping - performing final sync");
-        
-        try
-        {
-            using var scope = _serviceProvider.CreateScope();
-            var databaseCopyService = scope.ServiceProvider.GetService<IDatabaseCopyService>();
-            
-            if (databaseCopyService != null)
-            {
-                var syncTask = databaseCopyService.SyncAllChangesToRemoteAsync();
-                var completedTask = await Task.WhenAny(syncTask, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
-                
-                if (completedTask == syncTask)
-                {
-                    _logger.LogInformation("Final database sync completed successfully");
-                }
-                else
-                {
-                    _logger.LogWarning("Final database sync timed out");
-                }
-            }
-            else
-            {
-                _logger.LogWarning("DatabaseCopyService not found in service provider for final sync");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during final database sync");
-        }
-        
-        await base.StopAsync(cancellationToken);
     }
 }

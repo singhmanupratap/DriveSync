@@ -1,6 +1,7 @@
 using Shared.Data;
-using WebUI.BackgroundServices;
+using DriveSync.WebUI.BackgroundServices;
 using Shared.Services;
+using System.Text.Json;
 
 namespace DriveSync.WebUI
 {
@@ -11,7 +12,11 @@ namespace DriveSync.WebUI
             var builder = WebApplication.CreateBuilder(args);
 
             // Add services to the container.
-            builder.Services.AddControllersWithViews();
+            builder.Services.AddControllersWithViews()
+                .AddJsonOptions(options =>
+                {
+                    options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+                });
 
             // Configure graceful shutdown
             builder.Services.Configure<HostOptions>(opts => {
@@ -21,18 +26,29 @@ namespace DriveSync.WebUI
             // Configuration for database path
             builder.Services.Configure<DatabaseConfig>(builder.Configuration.GetSection("DatabaseConfig"));
 
-            // Register database copy service
-            builder.Services.AddScoped<IDatabaseCopyService, DatabaseCopyService>();
-            builder.Services.AddScoped<DatabaseCopyService>();
+            // Register database copy service as singleton
+            builder.Services.AddSingleton<IDatabaseCopyService, DatabaseCopyService>();
+            builder.Services.AddSingleton<DatabaseCopyService>();
             
-            // Register file sync status service
-            builder.Services.AddScoped<IFileSyncStatusService, FileSyncStatusService>();
+            // Register file sync status service as singleton
+            builder.Services.AddSingleton<IFileSyncStatusService, FileSyncStatusService>();
 
-            // Register background service for periodic database sync
+            // Register host orchestration service
+            builder.Services.AddSingleton<IHostOrchestrationService, HostOrchestrationService>();
+
+            // Register core services as singletons (required for background services)
+            builder.Services.AddSingleton<IFileIndexerService, FileIndexerService>();
+            builder.Services.AddSingleton<IFileDeleteService, FileDeleteService>();
+            builder.Services.AddSingleton<IFileSyncService, FileSyncService>();
+
+            // Register all background services
             builder.Services.AddHostedService<DatabaseSyncBackgroundService>();
+            builder.Services.AddHostedService<FileIndexerBackgroundService>();
+            builder.Services.AddHostedService<DeleteInactiveFilesBackgroundService>();
+            builder.Services.AddHostedService<SharedToLocalSyncBackgroundService>();
 
-            // Register database service
-            builder.Services.AddScoped<FileIndexerDatabase>(serviceProvider =>
+            // Register database service as singleton
+            builder.Services.AddSingleton<FileIndexerDatabase>(serviceProvider =>
             {
                 var config = builder.Configuration.GetSection("DatabaseConfig");
                 var localDatabasePath = config["LocalDatabasePath"] ?? "fileindexer_local.db";
