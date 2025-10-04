@@ -7,11 +7,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedToLocalDriveService",
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Shared", "Shared", "{4F52FD11-658E-A102-6CD3-7D7C16FFA15B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DriveSync.Shared", "Shared\DriveSync.Shared\DriveSync.Shared.csproj", "{F42D6FCC-F2C6-4966-957E-E6885DC71296}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shared", "Shared\Shared.csproj", "{F42D6FCC-F2C6-4966-957E-E6885DC71296}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "WebUI", "WebUI", "{7E46470A-DE14-085D-F0DF-9D428E2CAD5E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DriveSync.WebUI", "WebUI\DriveSync.WebUI\DriveSync.WebUI.csproj", "{F02440EA-2F8B-4324-AC93-E3D69EB503FA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebUI", "WebUI\WebUI.csproj", "{F02440EA-2F8B-4324-AC93-E3D69EB503FA}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileIndexerService", "FileIndexerService\FileIndexerService.csproj", "{19400A28-47E5-4C0D-BBD9-1EA7EACB6BE2}"
 EndProject

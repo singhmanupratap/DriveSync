@@ -3,8 +3,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.EventLog;
-using SharedToLocalDriveService.Configuration;
-using SharedToLocalDriveService.Services;
+using Shared.Services;
+using Shared.Configuration;
+using SharedToLocalDriveService.BackgroundServices;
 
 namespace SharedToLocalDriveService;
 
@@ -42,12 +43,14 @@ public class Program
             .ConfigureServices((context, services) =>
             {
                 // Configuration
-                services.Configure<ServiceConfiguration>(
-                    context.Configuration.GetSection(ServiceConfiguration.SectionName));
+                services.Configure<SharedToLocalConfiguration>(
+                    context.Configuration.GetSection(SharedToLocalConfiguration.SectionName));
 
-                // Services
+                // Register services
                 services.AddScoped<IFileSyncService, FileSyncService>();
-                services.AddHostedService<Worker>();
+
+                // Services - Use the new background service
+                services.AddHostedService<SharedToLocalDriveBackgroundService>();
             })
             .ConfigureLogging((context, logging) =>
             {
@@ -57,8 +60,11 @@ public class Program
                 {
                     logging.AddEventLog(options =>
                     {
-                        options.SourceName = "SharedToLocalDriveService";
-                        options.LogName = "Application";
+                        if (OperatingSystem.IsWindows())
+                        {
+                            options.SourceName = "SharedToLocalDriveService";
+                            options.LogName = "Application";
+                        }
                     });
                 }
                 

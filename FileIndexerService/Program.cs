@@ -1,4 +1,5 @@
-using FileIndexerService.Services;
+using Shared.Services;
+using FileIndexerService.BackgroundServices;
 using Microsoft.Extensions.Logging.EventLog;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -26,9 +27,14 @@ builder.Services.AddLogging(configure =>
     }
 });
 
+// Register services
+builder.Services.AddScoped<IDatabaseCopyService, DatabaseCopyService>();
+builder.Services.AddScoped<IFileIndexerService, Shared.Services.FileIndexerService>();
+builder.Services.AddScoped<IFileDeleteService, FileDeleteService>();
+
 // Add the main services
-builder.Services.AddHostedService<FileIndexerService.Services.FileIndexerService>();
-builder.Services.AddHostedService<FileIndexerService.Services.DeleteIsActiveFilesService>();
+builder.Services.AddHostedService<FileIndexerBackgroundService>();
+builder.Services.AddHostedService<DeleteInactiveFilesBackgroundService>();
 
 var host = builder.Build();
 
